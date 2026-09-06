@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bowling — OpenWii</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; cursor: none;
+    background: #1a1622; color: #f3eef7;
+    font: 500 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    user-select: none;
+  }
+  canvas { display: block; position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  #hud { position: absolute; inset: 0; pointer-events: none; }
+
+  /* ── Scoreboard ─────────────────────────────────────────────────────── */
+  #scoreboard {
+    position: absolute; left: 50%; top: 18px; transform: translateX(-50%);
+    background: #221d2dd9; border: 1px solid #4a3f63; border-radius: 14px;
+    padding: 10px 12px; backdrop-filter: blur(6px);
+  }
+  .score-row {
+    display: flex; align-items: stretch; gap: 4px;
+    padding: 3px 4px; border-radius: 8px; opacity: 0.55;
+  }
+  .score-row.active { opacity: 1; background: #ffffff14; }
+  .score-row + .score-row { margin-top: 3px; }
+  .score-name {
+    width: 30px; flex: none; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 800; border-radius: 6px; letter-spacing: .02em;
+  }
+  .score-frames { display: flex; gap: 2px; }
+  .frame-cell {
+    width: 32px; flex: none; background: #ffffff0d; border: 1px solid #ffffff1f;
+    border-radius: 5px; text-align: center; padding: 2px 0 3px;
+  }
+  .frame-cell.tenth { width: 46px; }
+  .frame-cell.current { border-color: #ffd166; box-shadow: 0 0 0 1px #ffd16688 inset; }
+  .frame-rolls { display: flex; justify-content: center; gap: 1px; font-size: 10.5px;
+                 font-weight: 700; color: #d8cfe8; min-height: 13px; }
+  .frame-rolls span { min-width: 10px; }
+  .frame-rolls span.strike, .frame-rolls span.spare { color: #ffd166; }
+  .frame-cum { font-size: 12px; font-weight: 800; color: #fff; min-height: 15px; }
+  .score-total {
+    width: 44px; flex: none; display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 900; color: #ffd166;
+  }
+
+  /* ── Turn card ──────────────────────────────────────────────────────── */
+  #card {
+    position: absolute; left: 28px; top: 24px; background: #221d2dd9;
+    border: 1px solid #4a3f63; border-radius: 14px; padding: 12px 18px;
+  }
+  #turn { font-size: 15px; font-weight: 800; }
+  #frameinfo { font-size: 12px; color: #b6a8d1; text-transform: uppercase; letter-spacing: .1em; }
+  #pinsleft { font-size: 26px; font-weight: 800; margin-top: 2px; }
+
+  #powerwrap {
+    position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%);
+    width: 240px; height: 12px; border-radius: 999px; background: #ffffff1a;
+    border: 1px solid #4a3f63; opacity: 0; transition: opacity .2s; overflow: hidden;
+  }
+  #powerwrap.on { opacity: 1; }
+  #power { height: 100%; width: 0%; background: linear-gradient(90deg, #6bd4ff, #ffd166, #ff5d6c); }
+
+  #curvewrap {
+    position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%);
+    width: 240px; height: 6px; opacity: 0; transition: opacity .2s;
+  }
+  #curvewrap.on { opacity: 1; }
+  #curvewrap .mid { position: absolute; left: 50%; top: -3px; width: 2px; height: 12px; background: #ffffff40; }
+  #curvedot { position: absolute; top: -4px; width: 8px; height: 8px; border-radius: 50%;
+              background: #ffd166; transform: translateX(-50%); left: 50%; }
+
+  #banner {
+    position: absolute; left: 50%; top: 22%; transform: translateX(-50%);
+    font-size: 44px; font-weight: 900; color: #fff; text-shadow: 0 4px 14px #0009;
+    opacity: 0; transition: opacity .15s; white-space: nowrap;
+  }
+  #banner.on { opacity: 1; }
+  #banner.strike { color: #ffd166; }
+  #banner.gutter { color: #8fa3c9; }
+
+  #keys { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%);
+          font-size: 11px; color: #b6a8d1; }
+  #keys a { color: inherit; pointer-events: auto; }
+  #link { position: absolute; right: 30px; bottom: 24px; display: flex; align-items: center;
+          gap: 9px; font-size: 13px; color: #b6a8d1; background: #221d2dc4;
+          border: 1px solid #4a3f63; padding: 9px 14px; border-radius: 999px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #6a5c88; }
+  .dot.on { background: #2fb56b; }
+  #debug { position: absolute; right: 30px; top: 96px; margin: 0; display: none;
+           background: #221d2dd9; border: 1px solid #4a3f63; border-radius: 12px;
+           padding: 13px 15px; font: 12px/1.6 ui-monospace, Menlo, monospace;
+           color: #b6a8d1; white-space: pre; }
+  #debug.on { display: block; }
+
+  #overlay { position: absolute; inset: 0; display: grid; place-items: center; z-index: 5;
+             background: radial-gradient(ellipse at 50% 40%, #2c2440ee, #1a1622f5 70%); }
+  #overlay.hide { display: none; }
+  .panel { text-align: center; max-width: 600px; padding: 0 30px; pointer-events: auto; }
+  .panel h1 { font-size: 54px; margin: 0 0 8px; font-weight: 800; letter-spacing: -0.03em; }
+  .panel h1 em { font-style: normal;
+    background: linear-gradient(120deg, #ffd166, #ff5d6c);
+    -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .panel p { color: #cfc4e6; margin: 0 auto 22px; max-width: 460px; }
+  .cta { font-size: 14px; color: #cfc4e6; }
+  .cta strong { color: #fff; }
+
+  #playerpicker { display: flex; gap: 10px; justify-content: center; margin: 0 0 26px; }
+  .pcount {
+    width: 56px; height: 56px; border-radius: 14px; border: 1px solid #4a3f63;
+    background: #ffffff0f; color: #f3eef7; font-size: 20px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .pcount.sel { background: linear-gradient(135deg, #ffd166, #ff5d6c); color: #22162a; border-color: transparent; }
+
+  #standings { display: flex; flex-direction: column; gap: 6px; margin: 0 0 24px; }
+  .standing-row { display: flex; justify-content: space-between; padding: 8px 16px;
+                  background: #ffffff0f; border-radius: 10px; font-weight: 700; }
+  .standing-row.winner { background: linear-gradient(90deg, #ffd16633, #ff5d6c22); color: #ffd166; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud">
+  <div id="scoreboard"></div>
+
+  <div id="card">
+    <div id="turn">Player 1</div>
+    <div id="frameinfo">frame 1 · ball 1</div>
+    <div id="pinsleft">10 pins</div>
+  </div>
+
+  <div id="banner"></div>
+  <div id="curvewrap"><div class="mid"></div><div id="curvedot"></div></div>
+  <div id="powerwrap"><div id="power"></div></div>
+
+  <div id="keys"><a href="/">← Games</a> · point to aim · swing the phone to bowl ·
+    flick your wrist to curve · <b>A</b>/Space start · <b>D</b> debug</div>
+  <div id="link"><span class="dot" id="dot"></span><span id="link-t">no remote connected</span></div>
+  <pre id="debug"></pre>
+</div>
+
+<div id="overlay">
+  <div class="panel" id="panel">
+    <h1>🎳 <em>Bowling</em></h1>
+    <p>Ten frames, real scoring. Point to aim down the lane, then swing the
+       phone like you're releasing the ball — flick your wrist through the
+       swing to hook it into the pocket.</p>
+    <div id="playerpicker">
+      <div class="pcount sel" data-n="1">1</div>
+      <div class="pcount" data-n="2">2</div>
+      <div class="pcount" data-n="3">3</div>
+      <div class="pcount" data-n="4">4</div>
+    </div>
+    <div class="cta">players — pass the phone after each frame ·
+      <strong>A</strong> or <strong>Space</strong> to bowl · <strong>B</strong> menu</div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script type="module" src="game.js"></script>
+</body>
+</html>
